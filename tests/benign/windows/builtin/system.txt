@@ -1,0 +1,9 @@
+# Ordinary System channel events no rule in windows/builtin/system may match.
+# Synthetic values only; add the legitimate event behind each noisy rejection.
+EventID=7045 Provider_Name="Service Control Manager" ServiceName="Spooler" ImagePath="C:\Windows\System32\spoolsv.exe" StartType="auto start" AccountName="LocalSystem"
+EventID=7045 Provider_Name="Service Control Manager" ServiceName="gupdate" ImagePath="\"C:\Program Files (x86)\Google\Update\GoogleUpdate.exe\" /svc" StartType="auto start" AccountName="LocalSystem"
+EventID=7045 Provider_Name="Service Control Manager" ServiceName="MozillaMaintenance" ImagePath="\"C:\Program Files (x86)\Mozilla Maintenance Service\maintenanceservice.exe\"" StartType="demand start" AccountName="LocalSystem"
+EventID=7036 Provider_Name="Service Control Manager" param1="Windows Update" param2="running"
+EventID=7040 Provider_Name="Service Control Manager" param1="Background Intelligent Transfer Service" param2="auto start" param3="demand start"
+EventID=6005 Provider_Name="EventLog"
+EventID=1074 Provider_Name="User32" param1="C:\Windows\system32\winlogon.exe" param5="restart"

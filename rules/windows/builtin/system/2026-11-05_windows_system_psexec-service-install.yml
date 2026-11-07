@@ -30,4 +30,5 @@ falsepositives:
   - Administrators using PsExec for remote support
 level: medium
 # test-match: EventID=7045 Provider_Name="Service Control Manager" ServiceName="PSEXESVC" ImagePath="%SystemRoot%\PSEXESVC.exe"
+# test-match: EventID=7045 Provider_Name="Service Control Manager" ServiceName="UpdSvc01" ImagePath="C:\Windows\PSEXESVC.exe"
 # test-nomatch: EventID=7045 Provider_Name="Service Control Manager" ServiceName="Spooler" ImagePath="C:\Windows\System32\spoolsv.exe"

@@ -1,13 +1,23 @@
 """Validate every rule in rules/: the gate a rule passes before it is merged.
 
     python tools/validate.py            # all rules
-    python tools/validate.py FILE...    # some
+    python tools/validate.py FILE...    # some (a file outside rules/ is checked as new)
 
 Checks, per rule: it parses as Sigma (pySigma) with no validator issue; the
 required fields; `id` is a UUIDv4 and unique across the repository; the file name
 and folder match the logsource; the logsource is one Artifact Engine evaluates;
-at least one `# test-match:` line, and every `# test-match:` / `# test-nomatch:`
-line behaves (evaluated with pySigma's SQLite backend over a one-row table).
+`status` and `level` are ones triage reads; `falsepositives` names real cases;
+no IP address or hash inside `detection` (those are IOCs, not behaviour).
+
+Tests, evaluated with pySigma's SQLite backend:
+- at least 2 `# test-match:` and 1 `# test-nomatch:` line, and each behaves;
+- every test-nomatch is a near miss: it shares a word with some test-match (the
+  same binary, flag or path), so it shows the legitimate use of the same tool;
+- the rule matches nothing in the benign corpus for its logsource
+  (tests/benign/<folder>.txt: one ordinary event per line, same syntax).
+
+Overlap: a rule whose detection values are mostly another rule's (same folder)
+is a duplicate; improve that rule instead, keeping its `id`.
 Exit 1 on any failure.
 """
 from __future__ import annotations
@@ -25,10 +35,13 @@ from sigma.validators.core import validators
 
 ROOT = Path(__file__).resolve().parents[1]
 RULES = ROOT / "rules"
+BENIGN = ROOT / "tests" / "benign"
 NAME = re.compile(r"^\d{4}-\d{2}-\d{2}_[a-z0-9]+_[a-z0-9_]+_[a-z0-9-]+\.yml$")
 REQUIRED = ("title", "id", "status", "description", "references", "author", "date",
             "tags", "logsource", "detection", "falsepositives", "level")
 LEVELS = {"critical", "high", "medium"}
+STATUSES = {"experimental", "test", "stable"}
+VAGUE_FP = {"", "unknown", "none", "n/a", "na", "unlikely", "-"}
 # Folder for a logsource: windows/<category> or windows/builtin/<service>,
 # linux/<category or service>, web/.
 SUPPORTED_WINDOWS_SERVICES = {
@@ -39,6 +52,16 @@ SUPPORTED_WINDOWS_SERVICES = {
 TEST = re.compile(r"^#\s*test-(match|nomatch):\s*(.+)$", re.M)
 FIELD = re.compile(r"([A-Za-z_][\w.]*)\s*(?:NOT\s+)?(?:LIKE\b|=|IN\b|GLOB\b|REGEXP\b)", re.I)
 FROM = re.compile(r"(\bFROM\s+)(<TABLE_NAME>|\w+)", re.I)
+PAIR = re.compile(r'(\w+)=(?:"([^"]*)"|(\S+))')
+WORD = re.compile(r"[a-z0-9_][a-z0-9_.:-]{2,}")
+IPV4 = re.compile(r"(?<![\d.])(?:\d{1,3}\.){3}\d{1,3}(?![\d.])")
+HASH = re.compile(r"(?<![0-9a-f])(?:[0-9a-f]{32}|[0-9a-f]{40}|[0-9a-f]{64})(?![0-9a-f])", re.I)
+# Words every path shares: a near miss must share something about the tool itself.
+COMMON = {"windows", "system32", "syswow64", "program", "files", "x86", "programdata",
+          "users", "appdata", "local", "roaming", "temp", "downloads", "desktop",
+          "documents", "public", "usr", "bin", "sbin", "opt", "var", "tmp", "home"}
+OVERLAP = 0.6   # share of the smaller rule's detection values found in the other
+ROW = "_aeng_row"
 
 
 def expected_folder(ls: dict) -> tuple[Path | None, str]:
@@ -58,26 +81,51 @@ def expected_folder(ls: dict) -> tuple[Path | None, str]:
     return None, f"logsource {ls} is not evaluated by Artifact Engine"
 
 
-PAIR = re.compile(r'(\w+)=(?:"([^"]*)"|(\S+))')
-
-
 def event_of(spec: str) -> dict[str, str]:
     """`Field="value with spaces" Other=value` -> {Field: ..., Other: ...}."""
     return {k: (q if q or not u else u) for k, q, u in PAIR.findall(spec)}
 
 
-def matches(rule_yaml: str, event: dict[str, str]) -> bool:
+def evaluate(rule_yaml: str, events: list[dict[str, str]]) -> list[bool]:
+    """Whether the rule matches each event (one SQLite row per event)."""
     q = sqlite_mod.sqliteBackend().convert(SigmaCollection.from_yaml(rule_yaml))[0]
-    fields = set(event) | set(re.findall(r"`([^`]+)`", q)) | set(FIELD.findall(q))
-    con = sqlite3.connect(":memory:")
+    fields = set(re.findall(r"`([^`]+)`", q)) | set(FIELD.findall(q))
+    for e in events:
+        fields |= set(e)
+    fields.discard(ROW)
     cols = sorted(fields)
-    con.execute("CREATE TABLE t (" + ", ".join(f'"{c}" TEXT' for c in cols) + ")")
-    con.execute(f"INSERT INTO t VALUES ({','.join('?' * len(cols))})",
-                [event.get(c) for c in cols])
-    return bool(con.execute(FROM.sub(r"\1t", q, count=1)).fetchall())
+    con = sqlite3.connect(":memory:")
+    con.execute("CREATE TABLE t (" + ", ".join(f'"{c}" TEXT' for c in [ROW, *cols]) + ")")
+    con.executemany(f"INSERT INTO t VALUES ({','.join('?' * (len(cols) + 1))})",
+                    [[i, *(e.get(c) for c in cols)] for i, e in enumerate(events)])
+    cur = con.execute(FROM.sub(r"\1t", q, count=1))
+    at = [d[0] for d in cur.description].index(ROW)
+    hit = {int(r[at]) for r in cur.fetchall()}
+    return [i in hit for i in range(len(events))]
 
 
-def check(path: Path, seen: dict[str, Path]) -> list[str]:
+def words(event: dict[str, str]) -> set[str]:
+    return {w for v in event.values() for w in WORD.findall(v.lower())} - COMMON
+
+
+def leaves(node) -> list[str]:
+    """Every value in a detection, as text (keys and `condition` left out)."""
+    if isinstance(node, dict):
+        return [x for k, v in node.items() if k != "condition" for x in leaves(v)]
+    if isinstance(node, list):
+        return [x for v in node for x in leaves(v)]
+    return [] if node is None else [str(node)]
+
+
+def benign_events(folder: Path) -> list[tuple[str, dict[str, str]]]:
+    f = BENIGN / (folder.as_posix() + ".txt")
+    if not f.is_file():
+        return []
+    lines = [ln.strip() for ln in f.read_text(encoding="utf-8").splitlines()]
+    return [(ln, event_of(ln)) for ln in lines if ln and not ln.startswith("#")]
+
+
+def check(path: Path, seen: dict[str, Path], corpus: dict[Path, dict]) -> list[str]:
     text = path.read_text(encoding="utf-8")
     bad: list[str] = []
     if not NAME.match(path.name):
@@ -98,10 +146,20 @@ def check(path: Path, seen: dict[str, Path]) -> list[str]:
     seen[rid] = path
     if str(rule.get("level", "")).lower() not in LEVELS:
         bad.append("level must be critical, high or medium (lower is not read in triage)")
+    if str(rule.get("status", "")).lower() not in STATUSES:
+        bad.append("status must be experimental, test or stable")
+    fps = rule.get("falsepositives") or []
+    if not isinstance(fps, list) or not fps or any(
+            str(x).strip().lower().rstrip(".") in VAGUE_FP for x in fps):
+        bad.append("falsepositives must name concrete legitimate cases, not `unknown`")
+    values = leaves(rule.get("detection") or {})
+    iocs = sorted({m for v in values for m in IPV4.findall(v) + HASH.findall(v)})
+    if iocs:
+        bad.append(f"IOC in detection ({', '.join(iocs[:3])}): detect behaviour, not indicators")
     folder, why = expected_folder(rule.get("logsource") or {})
     if folder is None:
         bad.append(why)
-    elif path.parent.relative_to(RULES) != folder:
+    elif path.parent.is_relative_to(RULES) and path.parent.relative_to(RULES) != folder:
         bad.append(f"belongs in rules/{folder.as_posix()}/")
     try:
         parsed = SigmaCollection.from_yaml(text)
@@ -114,31 +172,67 @@ def check(path: Path, seen: dict[str, Path]) -> list[str]:
                     pass
     except Exception as e:  # noqa: BLE001
         return bad + [f"pySigma cannot parse it: {e}"]
-    tests = TEST.findall(text)
-    if not any(kind == "match" for kind, _ in tests):
-        bad.append("no `# test-match:` line")
-    for kind, spec in tests:
-        try:
-            got = matches(text, event_of(spec))
-        except Exception as e:  # noqa: BLE001
-            bad.append(f"test-{kind} could not run: {e}")
-            continue
-        if got != (kind == "match"):
+
+    tests = [(kind, spec, event_of(spec)) for kind, spec in TEST.findall(text)]
+    yes = [t for t in tests if t[0] == "match"]
+    no = [t for t in tests if t[0] == "nomatch"]
+    if len(yes) < 2 or not no:
+        bad.append(f"needs 2+ `# test-match:` and 1+ `# test-nomatch:` "
+                   f"(has {len(yes)} and {len(no)})")
+    hit_words = set().union(*(words(e) for _, _, e in yes)) if yes else set()
+    for _, spec, e in no:
+        if yes and not words(e) & hit_words:
+            bad.append(f"test-nomatch is not a near miss (shares no word with a "
+                       f"test-match; show the legitimate use of the same tool): {spec}")
+    benign = benign_events(folder) if folder is not None else []
+    try:
+        got = evaluate(text, [e for _, _, e in tests] + [e for _, e in benign])
+    except Exception as e:  # noqa: BLE001
+        return bad + [f"tests could not run: {e}"]
+    for (kind, spec, _), g in zip(tests, got):
+        if g != (kind == "match"):
             bad.append(f"test-{kind} failed: {spec}")
+    for (line, _), g in zip(benign, got[len(tests):]):
+        if g:
+            bad.append(f"matches the benign corpus (tests/benign/{folder.as_posix()}.txt): {line}")
+
+    mine = {v.lower() for v in values}
+    if folder is not None and mine:
+        for other, (ofolder, ovalues) in corpus.items():
+            if other == path or ofolder != folder or not ovalues:
+                continue
+            share = len(mine & ovalues) / min(len(mine), len(ovalues))
+            if share >= OVERLAP:
+                bad.append(f"overlaps {other.relative_to(ROOT).as_posix()} ({share:.0%} of "
+                           f"the detection values): improve that rule, keeping its id")
     return bad
 
 
 def main(argv: list[str]) -> int:
     paths = [Path(a).resolve() for a in argv] or sorted(RULES.rglob("*.yml"))
     seen: dict[str, Path] = {}
-    if argv:  # ids of the rules not under check still count for uniqueness
-        for p in RULES.rglob("*.yml"):
-            d = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+    corpus: dict[Path, tuple[Path | None, set[str]]] = {}
+    for p in RULES.rglob("*.yml"):
+        d = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+        if argv:  # ids of the rules not under check still count for uniqueness
             seen.setdefault(str(d.get("id", "")), p.resolve())
+        corpus[p.resolve()] = (expected_folder(d.get("logsource") or {})[0],
+                               {v.lower() for v in leaves(d.get("detection") or {})})
+    # An improved rule (same id as a file already here) is not its own duplicate.
+    by_id = {str((yaml.safe_load(p.read_text(encoding="utf-8")) or {}).get("id", "")): p
+             for p in corpus}
     failed = 0
     for p in paths:
-        bad = check(p, seen)
-        print(f"{'FAIL' if bad else 'ok  '} {p.relative_to(ROOT).as_posix()}")
+        rid = str((yaml.safe_load(p.read_text(encoding="utf-8")) or {}).get("id", ""))
+        others = {k: v for k, v in corpus.items() if k != by_id.get(rid)}
+        if by_id.get(rid) not in (None, p):
+            seen.pop(rid, None)
+        bad = check(p, seen, others)
+        try:
+            shown = p.relative_to(ROOT).as_posix()
+        except ValueError:
+            shown = str(p)
+        print(f"{'FAIL' if bad else 'ok  '} {shown}")
         for b in bad:
             print(f"     - {b}")
         failed += bool(bad)

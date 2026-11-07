@@ -36,4 +36,5 @@ falsepositives:
   - Other sync tools sharing these flag names (rare); check the binary's hash and signer
 level: medium
 # test-match: Image="C:\ProgramData\svchost.exe" CommandLine="svchost.exe copy D:\Finance mega:backup --transfers 32 --ignore-existing"
+# test-match: Image="C:\Users\Public\winupd.exe" CommandLine="winupd.exe sync C:\Shares remote:bucket --multi-thread-streams 8 --no-check-certificate"
 # test-nomatch: Image="C:\Users\jdoe\rclone.exe" CommandLine="rclone.exe copy D:\Finance mega:backup --transfers 32"

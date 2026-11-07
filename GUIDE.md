@@ -102,12 +102,26 @@ them; describe the idea in the note instead and it may become a native check.
 - Case data never goes in a rule: no real host names, user names, IP addresses,
   internal domains or file paths from an investigation. Use the technique, not
   the victim. If an IOC is the point, it belongs in an IOC list, not in Sigma.
-- Add at the end, as YAML comments, two or three example lines the rule MUST
-  match and one it must NOT match:
+- No IP address or hash inside `detection`: that is an IOC, not a behaviour.
+- Add at the end, as YAML comments, at least two example lines the rule MUST
+  match and at least one it must NOT match. Each must-not line is a **near miss**:
+  the legitimate use of the same tool (same binary, flag or path), never an
+  unrelated event:
   ```
-  # test-match: CommandLine="rclone.exe copy C:\Users\jdoe\Documents remote:bucket"
-  # test-nomatch: CommandLine="rclone.exe version"
+  # test-match: Image="C:\Users\jdoe\Downloads\rclone.exe" CommandLine="rclone.exe copy C:\Users\jdoe\Documents remote:bucket"
+  # test-match: Image="C:\ProgramData\rc\rclone.exe" CommandLine="rclone.exe sync D:\Finance mega:dump"
+  # test-nomatch: Image="C:\Users\jdoe\Downloads\rclone.exe" CommandLine="rclone.exe version"
   ```
+  For Linux shell history, one command per line.
+- Check the rules already in the repository first. If one covers the same
+  technique, improve that rule (same `id`) instead of adding a duplicate.
+
+## The gate
+
+`python tools/validate.py <file>` in the artifact-engine-sigma repository decides,
+not a model. Besides format, fields and the tests above, it fails a rule that
+matches anything in `tests/benign/<its folder>.txt` (ordinary events of clean
+hosts) or whose detection values are mostly another rule's.
 
 ## Your task
 
@@ -117,6 +131,8 @@ them; describe the idea in the note instead and it may become a native check.
    (e.g. one for Security 4688 without a command line, one for the command line).
 3. Then say in one line which of the evidence sources above it will fire on, and
    in which it cannot.
+4. If the technique leaves no trace in any source above, answer `NO_RULE` and
+   one line saying why. No rule is better than a forced, generic or IOC rule.
 
 Output only the YAML file(s) and those short notes.
 

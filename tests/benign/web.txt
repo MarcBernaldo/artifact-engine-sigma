@@ -1,0 +1,12 @@
+# Ordinary access-log requests no rule in web/ may match. Synthetic values only.
+cs-method="GET" cs-uri="/" cs-uri-stem="/" cs-uri-query="" sc-status="200" cs-user-agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36"
+cs-method="GET" cs-uri="/index.php?page=2&sort=date" cs-uri-stem="/index.php" cs-uri-query="page=2&sort=date" sc-status="200" cs-user-agent="Mozilla/5.0 (X11; Linux x86_64; rv:132.0) Gecko/20100101 Firefox/132.0"
+cs-method="GET" cs-uri="/static/css/site.css" cs-uri-stem="/static/css/site.css" cs-uri-query="" sc-status="304" cs-user-agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 14_6) AppleWebKit/605.1.15 Safari/605.1.15"
+cs-method="GET" cs-uri="/images/logo.png" cs-uri-stem="/images/logo.png" cs-uri-query="" sc-status="200" cs-referer="https://example.local/"
+cs-method="POST" cs-uri="/login" cs-uri-stem="/login" cs-uri-query="" sc-status="302" cs-referer="https://example.local/login"
+cs-method="GET" cs-uri="/search?q=annual+report+2025" cs-uri-stem="/search" cs-uri-query="q=annual+report+2025" sc-status="200"
+cs-method="GET" cs-uri="/api/v1/items?id=42&fields=name,price" cs-uri-stem="/api/v1/items" cs-uri-query="id=42&fields=name,price" sc-status="200" cs-user-agent="python-requests/2.32.3"
+cs-method="GET" cs-uri="/healthz" cs-uri-stem="/healthz" cs-uri-query="" sc-status="200" cs-user-agent="kube-probe/1.30"
+cs-method="GET" cs-uri="/robots.txt" cs-uri-stem="/robots.txt" cs-uri-query="" sc-status="200" cs-user-agent="Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
+cs-method="GET" cs-uri="/favicon.ico" cs-uri-stem="/favicon.ico" cs-uri-query="" sc-status="404"
+cs-method="GET" cs-uri="/wp-content/uploads/2025/05/photo.jpg" cs-uri-stem="/wp-content/uploads/2025/05/photo.jpg" cs-uri-query="" sc-status="200"

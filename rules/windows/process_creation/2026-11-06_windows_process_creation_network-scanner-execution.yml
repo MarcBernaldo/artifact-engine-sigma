@@ -25,4 +25,5 @@ falsepositives:
   - Network administrators inventorying the estate
 level: medium
 # test-match: Image="C:\Users\jdoe\AppData\Local\Temp\Advanced IP Scanner 2\advanced_ip_scanner.exe" CommandLine="advanced_ip_scanner.exe"
-# test-nomatch: Image="C:\Windows\System32\ping.exe" CommandLine="ping 10.0.0.5"
+# test-match: Image="C:\ProgramData\tools\netscan.exe" CommandLine="netscan.exe /hide /range:10.0.0.1-10.0.0.254"
+# test-nomatch: Image="C:\Users\jdoe\Downloads\Advanced_IP_Scanner_2.5.4594.1.exe" CommandLine="Advanced_IP_Scanner_2.5.4594.1.exe"
