@@ -1,0 +1,43 @@
+title: Scheduled Task Created With Script Host, Encoded Command or Temp Path
+id: 88a90271-d53e-467e-9b63-46d18bfc22af
+status: experimental
+description: Detects Security 4698 scheduled task creation whose task XML runs a LOLBin, an encoded or downloading PowerShell command, or a binary from a temp or public folder. Scheduled tasks are one of the most common persistence and remote execution methods, and 4698 keeps the full action even when command line auditing is off.
+references:
+    - https://attack.mitre.org/techniques/T1053/005/
+author: Marc
+date: 2026-11-07
+tags:
+    - attack.persistence
+    - attack.execution
+    - attack.t1053.005
+logsource:
+    product: windows
+    service: security
+detection:
+    selection_event:
+        EventID: 4698
+    selection_action:
+        TaskContent|contains:
+            - '\Users\Public\'
+            - '\Windows\Temp\'
+            - '\AppData\Local\Temp\'
+            - '\PerfLogs\'
+            - 'mshta'
+            - 'regsvr32'
+            - 'certutil'
+            - 'bitsadmin'
+            - ' -enc'
+            - ' -e JAB'
+            - 'FromBase64String'
+            - 'DownloadString'
+            - 'IEX('
+            - 'IEX ('
+            - 'Invoke-Expression'
+    condition: selection_event and selection_action
+falsepositives:
+    - Software updaters that stage a binary in Windows\Temp or AppData\Local\Temp before running it
+    - Admin maintenance tasks that call certutil or regsvr32 (rare)
+level: high
+# test-match: EventID=4698 TaskContent="<Exec><Command>powershell.exe</Command><Arguments>-nop -w hidden -enc SQBFAFgA</Arguments></Exec>"
+# test-match: EventID=4698 TaskContent="<Exec><Command>C:\Users\Public\update.exe</Command></Exec>"
+# test-nomatch: EventID=4698 TaskContent="<Exec><Command>C:\Program Files\Google\Update\GoogleUpdate.exe</Command><Arguments>/ua /installsource scheduler</Arguments></Exec>"

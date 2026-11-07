@@ -1,0 +1,50 @@
+title: Office Application Spawns Shell or Script Host
+id: 94b86aee-61c4-4e13-99bb-f3b4a0a2e921
+status: experimental
+description: Detects a Microsoft Office application starting a shell, script host or common LOLBin, the usual first step of a malicious macro or embedded object. It needs only Image and ParentImage, so it still fires on Security 4688 without command line auditing and on processes recovered from memory.
+references:
+    - https://attack.mitre.org/techniques/T1566/001/
+    - https://attack.mitre.org/techniques/T1204/002/
+author: Marc
+date: 2026-11-07
+modified: 2026-11-08
+tags:
+    - attack.initial-access
+    - attack.execution
+    - attack.t1566.001
+    - attack.t1204.002
+logsource:
+    product: windows
+    category: process_creation
+detection:
+    selection_parent:
+        ParentImage|endswith:
+            - '\WINWORD.EXE'
+            - '\EXCEL.EXE'
+            - '\POWERPNT.EXE'
+            - '\OUTLOOK.EXE'
+            - '\MSACCESS.EXE'
+            - '\MSPUB.EXE'
+            - '\ONENOTE.EXE'
+            - '\VISIO.EXE'
+    selection_child:
+        Image|endswith:
+            - '\cmd.exe'
+            - '\powershell.exe'
+            - '\pwsh.exe'
+            - '\wscript.exe'
+            - '\cscript.exe'
+            - '\mshta.exe'
+            - '\regsvr32.exe'
+            - '\certutil.exe'
+            - '\bitsadmin.exe'
+            - '\schtasks.exe'
+            - '\curl.exe'
+    condition: selection_parent and selection_child
+falsepositives:
+    - In-house Excel/Access macros that shell out to cmd or PowerShell (finance, reporting templates)
+    - Office add-ins that shell out to cmd or PowerShell for their own updates
+level: high
+# test-match: ParentImage="C:\Program Files\Microsoft Office\root\Office16\WINWORD.EXE" Image="C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
+# test-match: ParentImage="C:\Program Files\Microsoft Office\root\Office16\EXCEL.EXE" Image="C:\Windows\System32\mshta.exe"
+# test-nomatch: ParentImage="C:\Program Files\Microsoft Office\root\Office16\OUTLOOK.EXE" Image="C:\Windows\System32\rundll32.exe" CommandLine="rundll32.exe C:\Windows\System32\shimgvw.dll,ImageView_Fullscreen C:\Users\jdoe\AppData\Local\Temp\photo.jpg"

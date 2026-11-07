@@ -6,7 +6,7 @@ references:
   - https://attack.mitre.org/techniques/T1490/
 author: MarcBernaldo
 date: 2026-11-03
-modified: 2026-11-07
+modified: 2026-11-08
 tags:
   - attack.impact
   - attack.t1490
@@ -38,9 +38,10 @@ detection:
       - 'Delete'
   selection_wbadmin:
     Image|endswith: '\wbadmin.exe'
-    CommandLine|contains|all:
-      - 'delete'
-      - 'catalog'
+    CommandLine|contains:
+      - 'delete catalog'
+      - 'delete systemstatebackup'
+      - 'delete backup'
   selection_bcdedit:
     Image|endswith: '\bcdedit.exe'
     CommandLine|contains:
@@ -50,7 +51,9 @@ detection:
 falsepositives:
   - Backup software rotating its own shadow copies (check the parent process)
   - Storage administrators resizing shadow storage on file servers
+  - Backup administrators pruning old shadow copies by hand (usually /oldest or /for= on one volume, not /all /quiet)
 level: high
 # test-match: Image="C:\Windows\System32\vssadmin.exe" CommandLine="vssadmin.exe delete shadows /all /quiet"
 # test-match: Image="C:\Windows\System32\bcdedit.exe" CommandLine="bcdedit /set {default} recoveryenabled No"
+# test-match: Image="C:\Windows\System32\wbadmin.exe" CommandLine="wbadmin delete systemstatebackup -keepversions:0 -quiet"
 # test-nomatch: Image="C:\Windows\System32\vssadmin.exe" CommandLine="vssadmin list shadows"

@@ -25,8 +25,9 @@ Tests, evaluated with pySigma's SQLite backend:
 - the rule matches nothing in the benign corpus for its logsource
   (tests/benign/<folder>.txt: one ordinary event per line, same syntax).
 
-Overlap: a rule whose detection values are mostly another rule's (same folder)
-is a duplicate; improve that rule instead, keeping its `id`.
+Overlap: a rule whose `field=value` pairs are mostly another rule's (same
+folder) is a duplicate (the same name as parent in one and child in the other
+is not); improve that rule instead, keeping its `id`.
 Exit 1 on any failure.
 """
 from __future__ import annotations
@@ -138,6 +139,18 @@ def leaves(node) -> list[str]:
     return [] if node is None else [str(node)]
 
 
+def pairs(node, field: str = "") -> set[str]:
+    """`field=value` for every value in a detection, lower-cased, for the overlap
+    check: the same name as a parent and as a child is not the same detection."""
+    if isinstance(node, dict):
+        return {x for k, v in node.items() if k != "condition"
+                for x in pairs(v, str(k).split("|")[0] if isinstance(v, (str, int, list))
+                               and not isinstance(v, dict) else field)}
+    if isinstance(node, list):
+        return {x for v in node for x in pairs(v, field)}
+    return set() if node is None else {f"{field}={node}".lower()}
+
+
 def fields_of(detection: dict) -> set[str]:
     """Field names a detection selects on (modifiers dropped); keywords add none."""
     out: set[str] = set()
@@ -219,7 +232,9 @@ def check(path: Path, seen: dict[str, Path], corpus: dict[Path, dict]) -> list[s
             str(x).strip().lower().rstrip(".") in VAGUE_FP for x in fps):
         bad.append("falsepositives must name concrete legitimate cases, not `unknown`")
     values = leaves(rule.get("detection") or {})
-    iocs = sorted({m for v in values for m in IPV4.findall(v) + HASH.findall(v)})
+    # Loopback and 0.0.0.0 are behaviour (\\127.0.0.1\ADMIN$, a bind address), not IOCs.
+    iocs = sorted({m for v in values for m in IPV4.findall(v) + HASH.findall(v)
+                   if not m.startswith(("127.", "0.0.0.0"))})
     if iocs:
         bad.append(f"IOC in detection ({', '.join(iocs[:3])}): detect behaviour, not indicators")
     bad += source_problems(rule)
@@ -263,7 +278,7 @@ def check(path: Path, seen: dict[str, Path], corpus: dict[Path, dict]) -> list[s
         if g:
             bad.append(f"matches the benign corpus (tests/benign/{folder.as_posix()}.txt): {line}")
 
-    mine = {v.lower() for v in values}
+    mine = pairs(rule.get("detection") or {})
     if folder is not None and mine:
         for other, (ofolder, ovalues) in corpus.items():
             if other == path or ofolder != folder or not ovalues:
@@ -332,7 +347,7 @@ def main(argv: list[str]) -> int:
         if argv:  # ids of the rules not under check still count for uniqueness
             seen.setdefault(str(d.get("id", "")), p.resolve())
         corpus[p.resolve()] = (expected_folder(d.get("logsource") or {})[0],
-                               {v.lower() for v in leaves(d.get("detection") or {})})
+                               pairs(d.get("detection") or {}))
     # An improved rule (same id as a file already here) is not its own duplicate.
     by_id = {str((yaml.safe_load(p.read_text(encoding="utf-8")) or {}).get("id", "")): p
              for p in corpus}

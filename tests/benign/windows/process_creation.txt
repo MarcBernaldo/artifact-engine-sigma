@@ -29,3 +29,6 @@ Image="C:\Windows\System32\taskkill.exe" CommandLine="taskkill /IM notepad.exe /
 Image="C:\Users\jdoe\Downloads\Advanced_IP_Scanner_2.5.4594.1.exe" CommandLine="Advanced_IP_Scanner_2.5.4594.1.exe" ParentImage="C:\Windows\explorer.exe"
 Image="C:\Program Files\Microsoft Office\root\Office16\WINWORD.EXE" CommandLine="WINWORD.EXE /n C:\Users\jdoe\Documents\copy of report.docx" ParentImage="C:\Windows\explorer.exe"
 Image="C:\Program Files\Git\cmd\git.exe" CommandLine="git.exe fetch --depth 1 origin" ParentImage="C:\Program Files\Microsoft VS Code\Code.exe"
+ParentImage="C:\Program Files\Microsoft Office\root\Office16\OUTLOOK.EXE" Image="C:\Windows\System32\rundll32.exe" CommandLine="rundll32.exe C:\Windows\System32\shimgvw.dll,ImageView_Fullscreen C:\Users\jdoe\AppData\Local\Temp\photo.jpg"
+ParentImage="C:\Program Files\Microsoft Office\root\Office16\WINWORD.EXE" Image="C:\Windows\splwow64.exe" CommandLine="splwow64.exe 8192"
+ParentImage="C:\Program Files\Microsoft Office\root\Office16\EXCEL.EXE" Image="C:\Windows\System32\msiexec.exe" CommandLine="msiexec.exe /i C:\Users\jdoe\AppData\Local\Temp\addin-update.msi /qn"

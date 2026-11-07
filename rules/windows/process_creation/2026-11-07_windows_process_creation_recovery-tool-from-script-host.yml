@@ -1,0 +1,44 @@
+title: Backup or Boot Recovery Tool Started by a Script Host
+id: 4a2f2587-e063-4461-ab70-80af6af64f72
+status: experimental
+description: Detects vssadmin, wbadmin or bcdedit started by a script host, LOLBin or Office process, without needing the command line. It is the 4688-without-CommandLine companion of the shadow copy deletion rule, since ransomware launches these tools from batch or PowerShell scripts.
+references:
+    - https://attack.mitre.org/techniques/T1490/
+author: Marc
+date: 2026-11-07
+tags:
+    - attack.impact
+    - attack.t1490
+logsource:
+    product: windows
+    category: process_creation
+detection:
+    selection_tool:
+        Image|endswith:
+            - '\vssadmin.exe'
+            - '\wbadmin.exe'
+            - '\bcdedit.exe'
+    selection_parent:
+        ParentImage|endswith:
+            - '\powershell.exe'
+            - '\pwsh.exe'
+            - '\wscript.exe'
+            - '\cscript.exe'
+            - '\mshta.exe'
+            - '\rundll32.exe'
+            - '\regsvr32.exe'
+            - '\wmiprvse.exe'
+            - '\WINWORD.EXE'
+            - '\EXCEL.EXE'
+    filter_program_files:
+        ParentImage|startswith:
+            - 'C:\Program Files\'
+            - 'C:\Program Files (x86)\'
+    condition: selection_tool and selection_parent and not filter_program_files
+falsepositives:
+    - Admin PowerShell scripts that list or create shadow copies (vssadmin list/create) - check whether several of these tools run within minutes, which points to ransomware
+    - Remote management (WMI/PowerShell remoting) used by IT to check backups
+level: medium
+# test-match: ParentImage="C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe" Image="C:\Windows\System32\vssadmin.exe"
+# test-match: ParentImage="C:\Windows\System32\wbem\WmiPrvSE.exe" Image="C:\Windows\System32\wbadmin.exe"
+# test-nomatch: ParentImage="C:\Windows\System32\services.exe" Image="C:\Windows\System32\vssadmin.exe"

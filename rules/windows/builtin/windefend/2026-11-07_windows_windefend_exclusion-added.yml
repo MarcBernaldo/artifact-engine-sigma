@@ -1,0 +1,29 @@
+title: Microsoft Defender Exclusion Added
+id: 1aea7487-83fd-4cc2-ae61-277633dcfee7
+status: experimental
+description: Detects Windows Defender/Operational 5007 configuration changes that add a path, process or extension exclusion. Attackers add exclusions for their staging folder or tool before dropping it, so the timestamp often marks the start of hands-on activity.
+references:
+    - https://attack.mitre.org/techniques/T1685/
+author: Marc
+date: 2026-11-07
+tags:
+    - attack.defense-impairment
+    - attack.t1685
+logsource:
+    product: windows
+    service: windefend
+detection:
+    selection_event:
+        EventID: 5007
+    selection_exclusion:
+        NewValue|contains:
+            - '\Windows Defender\Exclusions\Paths\'
+            - '\Windows Defender\Exclusions\Processes\'
+            - '\Windows Defender\Exclusions\Extensions\'
+    condition: selection_event and selection_exclusion
+falsepositives:
+    - Exclusions pushed by GPO/Intune or set by admins for backup agents, databases or build folders - compare the excluded path with known software
+level: medium
+# test-match: EventID=5007 NewValue="HKLM\SOFTWARE\Microsoft\Windows Defender\Exclusions\Paths\C:\Users\Public = 0x0"
+# test-match: EventID=5007 NewValue="HKLM\SOFTWARE\Microsoft\Windows Defender\Exclusions\Extensions\.exe = 0x0"
+# test-nomatch: EventID=5007 NewValue="HKLM\SOFTWARE\Microsoft\Windows Defender\Scan\ScheduleDay = 0x8"

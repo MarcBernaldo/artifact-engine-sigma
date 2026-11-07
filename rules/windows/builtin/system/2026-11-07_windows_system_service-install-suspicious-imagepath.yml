@@ -1,0 +1,49 @@
+title: Service Installed With Shell, Script or User-Writable Image Path
+id: 0fdb0ac0-0a23-404b-bc15-f45bd5677aa2
+status: experimental
+description: Detects System 7045 service installations whose ImagePath runs cmd or PowerShell, encoded commands, or a binary from a user-writable folder or admin share. PsExec-style lateral movement, Impacket and Cobalt Strike services, and ransomware persistence all leave this trace even when process auditing is off.
+references:
+    - https://attack.mitre.org/techniques/T1543/003/
+    - https://attack.mitre.org/techniques/T1569/002/
+author: Marc
+date: 2026-11-07
+tags:
+    - attack.persistence
+    - attack.execution
+    - attack.lateral-movement
+    - attack.t1543.003
+    - attack.t1569.002
+    - attack.t1021.002
+logsource:
+    product: windows
+    service: system
+detection:
+    selection_event:
+        Provider_Name: 'Service Control Manager'
+        EventID: 7045
+    selection_path:
+        ImagePath|contains:
+            - '%COMSPEC%'
+            - 'cmd.exe /c'
+            - 'cmd /c'
+            - 'cmd.exe /q'
+            - 'powershell'
+            - 'pwsh'
+            - ' -enc'
+            - 'FromBase64String'
+            - 'mshta'
+            - 'rundll32'
+            - '\Users\Public\'
+            - '\AppData\'
+            - '\Windows\Temp\'
+            - '\PerfLogs\'
+            - '\ADMIN$\'
+            - '\\127.0.0.1\'
+    condition: selection_event and selection_path
+falsepositives:
+    - Remote support and RMM agents that install a service from Windows\Temp (ScreenConnect, some PDQ/LANDesk deployments) - check if the tool is sanctioned, attackers abuse them too
+    - Software installers that register a temporary service from AppData during setup
+level: high
+# test-match: Provider_Name="Service Control Manager" EventID=7045 ImagePath="%COMSPEC% /Q /c echo cd ^> \\127.0.0.1\C$\__output 2^>^&1 > %SYSTEMROOT%\Temp\execute.bat"
+# test-match: Provider_Name="Service Control Manager" EventID=7045 ImagePath="C:\Users\Public\svchost.exe"
+# test-nomatch: Provider_Name="Service Control Manager" EventID=7045 ImagePath="C:\Program Files\Mozilla Maintenance Service\maintenanceservice.exe"
