@@ -118,10 +118,16 @@ them; describe the idea in the note instead and it may become a native check.
 
 ## The gate
 
-`python tools/validate.py <file>` in the artifact-engine-sigma repository decides,
-not a model. Besides format, fields and the tests above, it fails a rule that
-matches anything in `tests/benign/<its folder>.txt` (ordinary events of clean
-hosts) or whose detection values are mostly another rule's.
+`python tools/validate.py --fix <file>` in the artifact-engine-sigma repository
+decides, not a model. `--fix` does the mechanical part for you: markdown fences,
+a new `id` when there is none, `date` and `status` when missing, field order, and
+the file name. Spend your effort on the detection and the tests. Besides format
+and the tests above, it fails a rule that selects a field its source does not
+have (web: `cs-*`/`sc-status`; Linux process: `Image`, `CommandLine`, `User`,
+`ParentImage`, `ParentCommandLine`; Linux syslog: `keywords:` only), a
+Sysmon-only category that does not say so, a hit in `tests/benign/<its
+folder>.txt` (ordinary events of clean hosts), or detection values that are
+mostly another rule's.
 
 ## Your task
 

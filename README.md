@@ -26,10 +26,11 @@ GUIDE.md                           how to write a rule for this engine (also an 
    or review a rule).
 2. One rule per file: `YYYY-MM-DD_<product>_<category-or-service>_<slug>.yml`, in
    the folder of its logsource. An improved rule keeps its `id`.
-3. `python tools/validate.py` must pass: pySigma parses it with no validator
+3. `python tools/validate.py --fix <file>` (normalises id, date, status, field
+   order and file name) must pass: pySigma parses it with no validator
    issue, required fields, a unique UUIDv4 `id`, level critical/high/medium,
    concrete false positives, no IP or hash in the detection, a logsource the
-   engine evaluates, 2+ `# test-match:` and 1+ `# test-nomatch:` lines that
+   engine evaluates and only fields that source has, 2+ `# test-match:` and 1+ `# test-nomatch:` lines that
    behave (each nomatch a near miss of a match), no hit in the benign corpus
    `tests/benign/`, and no large overlap with another rule.
 4. Commit and push; CI runs the same validation.

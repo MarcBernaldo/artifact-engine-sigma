@@ -2,12 +2,21 @@
 
     python tools/validate.py            # all rules
     python tools/validate.py FILE...    # some (a file outside rules/ is checked as new)
+    python tools/validate.py --fix FILE...   # normalise first, then check
+
+--fix does the mechanical part so a rule's author (person or model) does not:
+strips markdown fences, gives a missing or invalid `id` a new UUIDv4, fills a
+missing `date` (today) and `status` (experimental), puts the fields in the
+order below, and renames the file to YYYY-MM-DD_<product>_<category>_<slug>.yml
+from its date, logsource and title. It never touches the detection or the tests.
 
 Checks, per rule: it parses as Sigma (pySigma) with no validator issue; the
 required fields; `id` is a UUIDv4 and unique across the repository; the file name
 and folder match the logsource; the logsource is one Artifact Engine evaluates;
 `status` and `level` are ones triage reads; `falsepositives` names real cases;
-no IP address or hash inside `detection` (those are IOCs, not behaviour).
+no IP address or hash inside `detection` (those are IOCs, not behaviour);
+only fields the evaluated source has (web: cs-*/sc-status; Linux process: the
+history/ps fields; Linux syslog: keywords only); a Sysmon-only category says so.
 
 Tests, evaluated with pySigma's SQLite backend:
 - at least 2 `# test-match:` and 1 `# test-nomatch:` line, and each behaves;
@@ -52,7 +61,7 @@ SUPPORTED_WINDOWS_SERVICES = {
 TEST = re.compile(r"^#\s*test-(match|nomatch):\s*(.+)$", re.M)
 FIELD = re.compile(r"([A-Za-z_][\w.]*)\s*(?:NOT\s+)?(?:LIKE\b|=|IN\b|GLOB\b|REGEXP\b)", re.I)
 FROM = re.compile(r"(\bFROM\s+)(<TABLE_NAME>|\w+)", re.I)
-PAIR = re.compile(r'(\w+)=(?:"([^"]*)"|(\S+))')
+PAIR = re.compile(r'([\w-]+)=(?:"([^"]*)"|(\S+))')
 WORD = re.compile(r"[a-z0-9_][a-z0-9_.:-]{2,}")
 IPV4 = re.compile(r"(?<![\d.])(?:\d{1,3}\.){3}\d{1,3}(?![\d.])")
 HASH = re.compile(r"(?<![0-9a-f])(?:[0-9a-f]{32}|[0-9a-f]{40}|[0-9a-f]{64})(?![0-9a-f])", re.I)
@@ -62,6 +71,18 @@ COMMON = {"windows", "system32", "syswow64", "program", "files", "x86", "program
           "documents", "public", "usr", "bin", "sbin", "opt", "var", "tmp", "home"}
 OVERLAP = 0.6   # share of the smaller rule's detection values found in the other
 ROW = "_aeng_row"
+ORDER = ("title", "id", "status", "description", "references", "author", "date",
+         "modified", "tags", "logsource", "detection", "falsepositives", "level")
+WEB_FIELDS = {"cs-method", "cs-uri", "cs-uri-stem", "cs-uri-query", "cs-user-agent",
+              "cs-referer", "cs-host", "sc-status", "c-ip"}
+LINUX_PROC_FIELDS = {"Image", "CommandLine", "User", "ParentImage", "ParentCommandLine"}
+# Windows categories only Sysmon produces: they fire on the rare host that ran it.
+SYSMON_ONLY = {"file_event", "file_delete", "file_access", "file_change", "file_rename",
+               "registry_event", "registry_add", "registry_set", "registry_delete",
+               "registry_rename", "network_connection", "image_load", "dns_query",
+               "process_access", "create_remote_thread", "pipe_created", "driver_load",
+               "raw_access_thread", "create_stream_hash", "process_tampering",
+               "wmi_event", "clipboard_capture"}
 
 
 def expected_folder(ls: dict) -> tuple[Path | None, str]:
@@ -117,6 +138,51 @@ def leaves(node) -> list[str]:
     return [] if node is None else [str(node)]
 
 
+def fields_of(detection: dict) -> set[str]:
+    """Field names a detection selects on (modifiers dropped); keywords add none."""
+    out: set[str] = set()
+
+    def walk(node):
+        if isinstance(node, dict):
+            for k, v in node.items():
+                out.add(str(k).split("|")[0])
+        elif isinstance(node, list):
+            for v in node:
+                walk(v)
+    for name, sel in (detection or {}).items():
+        if name != "condition":
+            walk(sel)
+    return out
+
+
+def source_problems(rule: dict) -> list[str]:
+    ls = rule.get("logsource") or {}
+    product = (ls.get("product") or "").lower()
+    cat = (ls.get("category") or "").lower()
+    svc = (ls.get("service") or "").lower()
+    used = fields_of(rule.get("detection") or {})
+    bad: list[str] = []
+    if cat == "webserver" and used - WEB_FIELDS:
+        bad.append(f"field(s) {sorted(used - WEB_FIELDS)} not in a web access log "
+                   f"(only {sorted(WEB_FIELDS)})")
+    if product == "linux" and cat == "process_creation" and used - LINUX_PROC_FIELDS:
+        bad.append(f"field(s) {sorted(used - LINUX_PROC_FIELDS)} not in shell history/ps "
+                   f"(only {sorted(LINUX_PROC_FIELDS)})")
+    # The engine's routing (sigma_engine._table_for): auditd service or these
+    # categories go to the auditd table; every other Linux rule runs as keywords.
+    keyword_only = product == "linux" and svc != "auditd" and cat not in {
+        "process_creation", "network_connection", "file_event", "file_create",
+        "file_delete", "file_change", "file_rename"}
+    if keyword_only and used:
+        bad.append("Linux syslog rules are matched as keywords per line: use `keywords:` "
+                   f"lists, not field selections ({sorted(used)})")
+    if product == "windows" and cat in SYSMON_ONLY:
+        text = f"{rule.get('description', '')} {rule.get('falsepositives', '')}".lower()
+        if "sysmon" not in text:
+            bad.append(f"`{cat}` exists only where Sysmon ran: say so in the description")
+    return bad
+
+
 def benign_events(folder: Path) -> list[tuple[str, dict[str, str]]]:
     f = BENIGN / (folder.as_posix() + ".txt")
     if not f.is_file():
@@ -156,6 +222,7 @@ def check(path: Path, seen: dict[str, Path], corpus: dict[Path, dict]) -> list[s
     iocs = sorted({m for v in values for m in IPV4.findall(v) + HASH.findall(v)})
     if iocs:
         bad.append(f"IOC in detection ({', '.join(iocs[:3])}): detect behaviour, not indicators")
+    bad += source_problems(rule)
     folder, why = expected_folder(rule.get("logsource") or {})
     if folder is None:
         bad.append(why)
@@ -208,7 +275,55 @@ def check(path: Path, seen: dict[str, Path], corpus: dict[Path, dict]) -> list[s
     return bad
 
 
+class _Dumper(yaml.SafeDumper):
+    def increase_indent(self, flow=False, indentless=False):  # lists indented under keys
+        return super().increase_indent(flow, False)
+
+
+def slug(title: str) -> str:
+    words_ = re.findall(r"[a-z0-9]+", title.lower())
+    return "-".join(words_[:6]) or "rule"
+
+
+def fix(path: Path) -> Path:
+    """Normalise one rule file in place (see the module docstring); returns its
+    path, renamed when the name was not the expected one."""
+    import datetime
+    raw = path.read_text(encoding="utf-8")
+    raw = re.sub(r"^\s*```[a-zA-Z]*\s*$", "", raw, flags=re.M)
+    comments = [ln for ln in raw.splitlines() if ln.startswith("#")]
+    rule = yaml.safe_load(raw) or {}
+    try:
+        if uuid.UUID(str(rule.get("id", ""))).version != 4:
+            raise ValueError
+    except ValueError:
+        rule["id"] = str(uuid.uuid4())
+    rule.setdefault("status", "experimental")
+    rule.setdefault("date", datetime.date.today().isoformat())
+    for k in ("date", "modified"):
+        if isinstance(rule.get(k), datetime.date):
+            rule[k] = rule[k].isoformat()
+    ordered = {k: rule[k] for k in ORDER if k in rule}
+    ordered.update({k: v for k, v in rule.items() if k not in ordered})
+    body = yaml.dump(ordered, Dumper=_Dumper, sort_keys=False, allow_unicode=True,
+                     width=4096, default_flow_style=False)
+    ls = rule.get("logsource") or {}
+    product = (ls.get("product") or ("web" if ls.get("category") == "webserver" else "x"))
+    kind = (ls.get("category") or ls.get("service") or "syslog").replace("-", "_")
+    name = f"{str(rule['date'])[:10]}_{product}_{kind}_{slug(str(rule.get('title', '')))}.yml"
+    target = path if NAME.match(path.name) else path.with_name(name.lower())
+    target.write_text(body + ("\n".join(comments) + "\n" if comments else ""), encoding="utf-8")
+    if target != path:
+        path.unlink()
+    return target
+
+
 def main(argv: list[str]) -> int:
+    if argv[:1] == ["--fix"]:
+        argv = [str(fix(Path(a).resolve())) for a in argv[1:]]
+        if not argv:
+            print("--fix needs the file(s) to normalise")
+            return 2
     paths = [Path(a).resolve() for a in argv] or sorted(RULES.rglob("*.yml"))
     seen: dict[str, Path] = {}
     corpus: dict[Path, tuple[Path | None, set[str]]] = {}
