@@ -1,0 +1,56 @@
+title: Shadow Copy Deletion and Recovery Inhibition
+id: a0f4ccec-3f7c-467a-b6ca-fa753e784f60
+status: experimental
+description: Detects commands that delete volume shadow copies or the backup catalog, shrink shadow storage to nothing, or disable Windows recovery. A common step right before ransomware encryption.
+references:
+  - https://attack.mitre.org/techniques/T1490/
+author: MarcBernaldo
+date: 2026-11-03
+modified: 2026-11-07
+tags:
+  - attack.impact
+  - attack.t1490
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_vssadmin_delete:
+    Image|endswith: '\vssadmin.exe'
+    CommandLine|contains|all:
+      - 'delete'
+      - 'shadows'
+  selection_vssadmin_resize:
+    Image|endswith: '\vssadmin.exe'
+    CommandLine|contains|all:
+      - 'resize'
+      - 'shadowstorage'
+  selection_wmic:
+    Image|endswith: '\wmic.exe'
+    CommandLine|contains|all:
+      - 'shadowcopy'
+      - 'delete'
+  selection_powershell:
+    Image|endswith:
+      - '\powershell.exe'
+      - '\pwsh.exe'
+    CommandLine|contains|all:
+      - 'Win32_ShadowCopy'
+      - 'Delete'
+  selection_wbadmin:
+    Image|endswith: '\wbadmin.exe'
+    CommandLine|contains|all:
+      - 'delete'
+      - 'catalog'
+  selection_bcdedit:
+    Image|endswith: '\bcdedit.exe'
+    CommandLine|contains:
+      - 'recoveryenabled no'
+      - 'bootstatuspolicy ignoreallfailures'
+  condition: 1 of selection_*
+falsepositives:
+  - Backup software rotating its own shadow copies (check the parent process)
+  - Storage administrators resizing shadow storage on file servers
+level: high
+# test-match: Image="C:\Windows\System32\vssadmin.exe" CommandLine="vssadmin.exe delete shadows /all /quiet"
+# test-match: Image="C:\Windows\System32\bcdedit.exe" CommandLine="bcdedit /set {default} recoveryenabled No"
+# test-nomatch: Image="C:\Windows\System32\vssadmin.exe" CommandLine="vssadmin list shadows"

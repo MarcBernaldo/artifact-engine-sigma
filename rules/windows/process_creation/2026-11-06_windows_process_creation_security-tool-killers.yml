@@ -1,0 +1,33 @@
+title: Security Tool Killer Execution
+id: 468d13d2-85ff-4e6e-9c4e-dee1602d5efe
+status: experimental
+description: Detects anti-rootkit utilities that ransomware operators run to kill endpoint protection before encrypting (PCHunter, HRSword, Process Hacker's kernel driver tooling).
+references:
+  - https://attack.mitre.org/techniques/T1685/
+author: MarcBernaldo
+date: 2026-11-06
+modified: 2026-11-07
+tags:
+  - attack.defense-impairment
+  - attack.t1685
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_killers:
+    Image|endswith:
+      - '\PCHunter64.exe'
+      - '\PCHunter32.exe'
+      - '\HRSword.exe'
+  selection_processhacker:
+    Image|endswith: '\ProcessHacker.exe'
+  filter_processhacker_installed:
+    Image|startswith: 'C:\Program Files\Process Hacker'
+  condition: selection_killers or (selection_processhacker and not filter_processhacker_installed)
+falsepositives:
+  - Malware analysts and incident responders using these tools on purpose
+  - Process Hacker run from a portable folder by an administrator
+level: high
+# test-match: Image="C:\Users\Public\PCHunter64.exe" CommandLine="PCHunter64.exe"
+# test-match: Image="C:\ProgramData\ph\ProcessHacker.exe" CommandLine="ProcessHacker.exe"
+# test-nomatch: Image="C:\Program Files\Process Hacker 2\ProcessHacker.exe" CommandLine="ProcessHacker.exe"

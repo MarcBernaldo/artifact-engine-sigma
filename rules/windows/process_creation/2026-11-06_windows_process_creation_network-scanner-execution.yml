@@ -1,0 +1,28 @@
+title: Network Scanner Execution
+id: fc4c6ff1-4623-492e-9ed5-563ab7b9b44e
+status: experimental
+description: Detects network and port scanners that ransomware operators run for discovery once inside (Advanced IP Scanner, Advanced Port Scanner, SoftPerfect NetScan). Common admin tools too, so medium; read with the host's role in mind.
+references:
+  - https://attack.mitre.org/techniques/T1046/
+author: MarcBernaldo
+date: 2026-11-06
+modified: 2026-11-07
+tags:
+  - attack.discovery
+  - attack.t1046
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection:
+    Image|endswith:
+      - '\advanced_ip_scanner.exe'
+      - '\advanced_ip_scanner_console.exe'
+      - '\advanced_port_scanner.exe'
+      - '\netscan.exe'
+  condition: selection
+falsepositives:
+  - Network administrators inventorying the estate
+level: medium
+# test-match: Image="C:\Users\jdoe\AppData\Local\Temp\Advanced IP Scanner 2\advanced_ip_scanner.exe" CommandLine="advanced_ip_scanner.exe"
+# test-nomatch: Image="C:\Windows\System32\ping.exe" CommandLine="ping 10.0.0.5"

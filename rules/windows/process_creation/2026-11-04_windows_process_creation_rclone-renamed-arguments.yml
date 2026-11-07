@@ -1,0 +1,39 @@
+title: Renamed Rclone Recognised by Its Transfer Arguments
+id: 560b9f79-099c-46f9-b213-ea5139777fbf
+status: experimental
+description: Detects an rclone-style bulk copy or sync to a cloud remote from a binary that is not named rclone.exe. Operators rename rclone to blend in; its argument set gives it away.
+references:
+  - https://attack.mitre.org/techniques/T1567/002/
+  - https://rclone.org/flags/
+author: MarcBernaldo
+date: 2026-11-04
+modified: 2026-11-07
+tags:
+  - attack.exfiltration
+  - attack.t1567.002
+  - attack.stealth
+  - attack.t1036.003
+logsource:
+  category: process_creation
+  product: windows
+detection:
+  selection_verb:
+    CommandLine|contains:
+      - ' copy '
+      - ' sync '
+  selection_flags:
+    CommandLine|contains:
+      - '--transfers'
+      - '--multi-thread-streams'
+      - '--ignore-existing'
+      - '--max-age'
+      - '--no-check-certificate'
+      - ' mega:'
+  filter_named:
+    Image|endswith: '\rclone.exe'
+  condition: selection_verb and selection_flags and not filter_named
+falsepositives:
+  - Other sync tools sharing these flag names (rare); check the binary's hash and signer
+level: medium
+# test-match: Image="C:\ProgramData\svchost.exe" CommandLine="svchost.exe copy D:\Finance mega:backup --transfers 32 --ignore-existing"
+# test-nomatch: Image="C:\Users\jdoe\rclone.exe" CommandLine="rclone.exe copy D:\Finance mega:backup --transfers 32"

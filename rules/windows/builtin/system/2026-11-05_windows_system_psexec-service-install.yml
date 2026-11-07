@@ -1,0 +1,33 @@
+title: PsExec Service Installation
+id: 614ab129-acec-459d-b11c-59e03150d76a
+status: experimental
+description: Detects the installation of the PsExec service (PSEXESVC) in the System log, the trace PsExec leaves on the target of lateral movement. A renamed service (psexec -r) is not caught; the engine's art_service_installs judges those by shape.
+references:
+  - https://attack.mitre.org/techniques/T1569/002/
+  - https://learn.microsoft.com/en-us/sysinternals/downloads/psexec
+author: MarcBernaldo
+date: 2026-11-05
+modified: 2026-11-07
+tags:
+  - attack.lateral-movement
+  - attack.t1021.002
+  - attack.execution
+  - attack.t1569.002
+logsource:
+  product: windows
+  service: system
+detection:
+  selection_name:
+    Provider_Name: 'Service Control Manager'
+    EventID: 7045
+    ServiceName: 'PSEXESVC'
+  selection_path:
+    Provider_Name: 'Service Control Manager'
+    EventID: 7045
+    ImagePath|endswith: '\PSEXESVC.exe'
+  condition: 1 of selection_*
+falsepositives:
+  - Administrators using PsExec for remote support
+level: medium
+# test-match: EventID=7045 Provider_Name="Service Control Manager" ServiceName="PSEXESVC" ImagePath="%SystemRoot%\PSEXESVC.exe"
+# test-nomatch: EventID=7045 Provider_Name="Service Control Manager" ServiceName="Spooler" ImagePath="C:\Windows\System32\spoolsv.exe"
