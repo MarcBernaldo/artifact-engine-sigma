@@ -3,6 +3,7 @@
     python tools/validate.py            # all rules
     python tools/validate.py FILE...    # some (a file outside rules/ is checked as new)
     python tools/validate.py --fix FILE...   # normalise first, then check
+    python tools/validate.py --sigmahq DIR FILE...   # also against a SigmaHQ clone
 
 --fix does the mechanical part so a rule's author (person or model) does not:
 strips markdown fences, gives a missing or invalid `id` a new UUIDv4, fills a
@@ -28,11 +29,24 @@ Tests, evaluated with pySigma's SQLite backend:
 
 Overlap: a rule whose `field=value` pairs are mostly another rule's (same
 folder) is a duplicate (the same name as parent in one and child in the other
-is not); improve that rule instead, keeping its `id`.
+is not); improve that rule instead, keeping its `id`. With a SigmaHQ copy, each
+value weighs by how rare it is there: `powershell.exe` (in hundreds of rules)
+counts almost nothing, `deletejournal` counts fully.
+
+SigmaHQ (`--sigmahq DIR` or the SIGMAHQ_DIR variable: a SigmaHQ clone): every
+SigmaHQ rule of the same logsource runs over the rule's test-match events, with
+a field the event lacks as empty text (so SigmaHQ's own filters do not hide the
+hit). Each test-match a SigmaHQ rule matches is printed as `warn`, naming it;
+when SigmaHQ matches every test-match the rule is likely a duplicate. A warn
+does not fail the run; keep the rule only if it adds something the SigmaHQ one
+does not, and say what in a `# beyond-sigmahq:` comment. Without a copy the
+check is skipped (CI has none).
 Exit 1 on any failure.
 """
 from __future__ import annotations
 
+import math
+import os
 import re
 import sqlite3
 import sys
@@ -72,7 +86,11 @@ COMMON = {"windows", "system32", "syswow64", "program", "files", "x86", "program
           "users", "appdata", "local", "roaming", "temp", "downloads", "desktop",
           "documents", "public", "usr", "bin", "sbin", "opt", "var", "tmp", "home"}
 OVERLAP = 0.6   # share of the smaller rule's detection values found in the other
+# SigmaHQ folders whose rules alert (threat-hunting, compliance, placeholder do not).
+SIGMAHQ_SETS = ("rules", "rules-emerging-threats", "rules-dfir")
 ROW = "_aeng_row"
+BEYOND = re.compile(r"^#\s*beyond-sigmahq:\s*(.+)$", re.M)
+DUPLICATE = "likely a duplicate"
 ORDER = ("title", "id", "status", "description", "references", "author", "date",
          "modified", "tags", "logsource", "detection", "falsepositives", "level")
 WEB_FIELDS = {"cs-method", "cs-uri", "cs-uri-stem", "cs-uri-query", "cs-user-agent",
@@ -117,9 +135,13 @@ def event_of(spec: str) -> dict[str, str]:
     return {k: (q if q or not u else u) for k, q, u in PAIR.findall(spec)}
 
 
-def evaluate(rule_yaml: str, events: list[dict[str, str]]) -> list[bool]:
-    """Whether the rule matches each event (one SQLite row per event)."""
-    q = sqlite_mod.sqliteBackend().convert(SigmaCollection.from_yaml(rule_yaml))[0]
+def to_sql(rule_yaml: str) -> str:
+    return sqlite_mod.sqliteBackend().convert(SigmaCollection.from_yaml(rule_yaml))[0]
+
+
+def run_sql(q: str, events: list[dict[str, str]], fill: str | None = None) -> list[bool]:
+    """Whether the query matches each event (one SQLite row per event). `fill` is
+    the value of a field the event lacks (None = SQL NULL)."""
     fields = set(re.findall(r"`([^`]+)`", q)) | set(FIELD.findall(q))
     for e in events:
         fields |= set(e)
@@ -128,11 +150,100 @@ def evaluate(rule_yaml: str, events: list[dict[str, str]]) -> list[bool]:
     con = sqlite3.connect(":memory:")
     con.execute("CREATE TABLE t (" + ", ".join(f'"{c}" TEXT' for c in [ROW, *cols]) + ")")
     con.executemany(f"INSERT INTO t VALUES ({','.join('?' * (len(cols) + 1))})",
-                    [[i, *(e.get(c) for c in cols)] for i, e in enumerate(events)])
+                    [[i, *(e.get(c, fill) for c in cols)] for i, e in enumerate(events)])
     cur = con.execute(FROM.sub(r"\1t", q, count=1))
     at = [d[0] for d in cur.description].index(ROW)
     hit = {int(r[at]) for r in cur.fetchall()}
     return [i in hit for i in range(len(events))]
+
+
+def evaluate(rule_yaml: str, events: list[dict[str, str]]) -> list[bool]:
+    """Whether the rule matches each event (one SQLite row per event)."""
+    return run_sql(to_sql(rule_yaml), events)
+
+
+def logsource_key(ls: dict) -> tuple[str, ...]:
+    return tuple(str(ls.get(k) or "").lower() for k in ("product", "category", "service"))
+
+
+class SigmaHQ:
+    """The SigmaHQ rules that alert, by logsource; each converted once, when needed."""
+
+    def __init__(self, root: Path):
+        self.root = root
+        self.by_source: dict[tuple, list[tuple[Path, str, str]]] = {}
+        self.df: dict[str, int] = {}   # value -> how many SigmaHQ rules use it
+        self._sql: dict[Path, str | None] = {}
+        self.rules = 0
+        for name in SIGMAHQ_SETS:
+            for p in sorted((root / name).rglob("*.yml")):
+                try:
+                    text = p.read_text(encoding="utf-8")
+                    d = yaml.safe_load(text)
+                except (yaml.YAMLError, UnicodeDecodeError):
+                    continue
+                if not isinstance(d, dict) or str(d.get("status", "")) == "deprecated":
+                    continue
+                self.rules += 1
+                self.by_source.setdefault(logsource_key(d.get("logsource") or {}), []).append(
+                    (p, str(d.get("title", "")), text))
+                for v in {x.split("=", 1)[1] for x in pairs(d.get("detection") or {})}:
+                    self.df[v] = self.df.get(v, 0) + 1
+
+    def weight(self, pair: str) -> float:
+        """How much a `field=value` says: 1.0 when no SigmaHQ rule uses the value,
+        near 0 when most do."""
+        n = self.df.get(pair.split("=", 1)[1], 0)
+        return math.log((self.rules + 1) / (n + 1)) / math.log(self.rules + 1)
+
+    def matches(self, rule: dict, events: list[dict[str, str]]) -> list[list[tuple[str, str]]]:
+        """Per event, (path, title) of each SigmaHQ rule of the same logsource that
+        matches it; a field the event lacks is empty text."""
+        out: list[list[tuple[str, str]]] = [[] for _ in events]
+        rid = str(rule.get("id", ""))
+        for p, title, text in self.by_source.get(logsource_key(rule.get("logsource") or {}), []):
+            if rid and rid in text:
+                continue
+            if p not in self._sql:
+                try:
+                    self._sql[p] = to_sql(text)
+                except Exception:  # noqa: BLE001 - a rule the backend cannot convert
+                    self._sql[p] = None
+            q = self._sql[p]
+            if q is None:
+                continue
+            try:
+                hits = run_sql(q, events, fill="")
+            except sqlite3.Error:  # e.g. REGEXP, which plain SQLite lacks
+                continue
+            for i, h in enumerate(hits):
+                if h:
+                    out[i].append((p.relative_to(self.root).as_posix(), title))
+        return out
+
+
+def sigmahq_warnings(text: str, rule: dict, hq: SigmaHQ | None) -> list[str]:
+    """One line per test-match a SigmaHQ rule already matches, then the verdict
+    when SigmaHQ matches every one of them."""
+    if hq is None:
+        return []
+    specs = [spec for kind, spec in TEST.findall(text) if kind == "match"]
+    if not specs:
+        return []
+    found = hq.matches(rule, [event_of(s) for s in specs])
+    out = []
+    for n, hits in enumerate(found, 1):
+        if hits:
+            more = f" (+{len(hits) - 2} more)" if len(hits) > 2 else ""
+            names = "; ".join(f"{title} [{path}]" for path, title in hits[:2])
+            out.append(f"test-match {n} already detected by SigmaHQ: {names}{more}")
+    if all(found):
+        reason = BEYOND.search(text)
+        out.append(f"SigmaHQ detects all {len(found)} test-match; kept because: "
+                   f"{reason.group(1).strip()}" if reason else
+                   f"{DUPLICATE}: SigmaHQ detects all {len(found)} test-match (keep it "
+                   f"only with a `# beyond-sigmahq:` line saying what it adds)")
+    return out
 
 
 def words(event: dict[str, str]) -> set[str]:
@@ -158,6 +269,14 @@ def pairs(node, field: str = "") -> set[str]:
     if isinstance(node, list):
         return {x for v in node for x in pairs(v, field)}
     return set() if node is None else {f"{field}={node}".lower()}
+
+
+def overlap_share(a: set[str], b: set[str], hq: SigmaHQ | None = None) -> float:
+    """Share of the smaller set's weight the other also has: weight 1 per value
+    without SigmaHQ, by rarity in SigmaHQ with it."""
+    w = hq.weight if hq is not None else (lambda _p: 1.0)
+    smaller = min(sum(w(x) for x in a), sum(w(x) for x in b))
+    return sum(w(x) for x in a & b) / smaller if smaller > 0 else 0.0
 
 
 def fields_of(detection: dict) -> set[str]:
@@ -216,7 +335,8 @@ def benign_events(folder: Path) -> list[tuple[str, dict[str, str]]]:
     return [(ln, event_of(ln)) for ln in lines if ln and not ln.startswith("#")]
 
 
-def check(path: Path, seen: dict[str, Path], corpus: dict[Path, dict]) -> list[str]:
+def check(path: Path, seen: dict[str, Path], corpus: dict[Path, dict],
+          hq: SigmaHQ | None = None) -> list[str]:
     text = path.read_text(encoding="utf-8")
     bad: list[str] = []
     if not NAME.match(path.name):
@@ -295,7 +415,7 @@ def check(path: Path, seen: dict[str, Path], corpus: dict[Path, dict]) -> list[s
         for other, (ofolder, ovalues) in corpus.items():
             if other == path or ofolder != folder or not ovalues:
                 continue
-            share = len(mine & ovalues) / min(len(mine), len(ovalues))
+            share = overlap_share(mine, ovalues, hq)
             if share >= OVERLAP:
                 bad.append(f"overlaps {other.relative_to(ROOT).as_posix()} ({share:.0%} of "
                            f"the detection values): improve that rule, keeping its id")
@@ -346,6 +466,21 @@ def fix(path: Path) -> Path:
 
 
 def main(argv: list[str]) -> int:
+    hq_dir = os.environ.get("SIGMAHQ_DIR", "")
+    if "--sigmahq" in argv:
+        i = argv.index("--sigmahq")
+        hq_dir = argv[i + 1] if i + 1 < len(argv) else ""
+        argv = argv[:i] + argv[i + 2:]
+        if not hq_dir:
+            print("--sigmahq needs the SigmaHQ clone's folder")
+            return 2
+    hq = None
+    if hq_dir:
+        if not (Path(hq_dir) / "rules").is_dir():
+            print(f"SigmaHQ {hq_dir}: not a SigmaHQ clone (no rules/ folder)")
+            return 2
+        hq = SigmaHQ(Path(hq_dir))
+        print(f"SigmaHQ: {hq.rules} rules")
     if argv[:1] == ["--fix"]:
         argv = [str(fix(Path(a).resolve())) for a in argv[1:]]
         if not argv:
@@ -363,13 +498,15 @@ def main(argv: list[str]) -> int:
     # An improved rule (same id as a file already here) is not its own duplicate.
     by_id = {str((yaml.safe_load(p.read_text(encoding="utf-8")) or {}).get("id", "")): p
              for p in corpus}
-    failed = 0
+    failed = warned = 0
     for p in paths:
         rid = str((yaml.safe_load(p.read_text(encoding="utf-8")) or {}).get("id", ""))
         others = {k: v for k, v in corpus.items() if k != by_id.get(rid)}
         if by_id.get(rid) not in (None, p):
             seen.pop(rid, None)
-        bad = check(p, seen, others)
+        bad = check(p, seen, others, hq)
+        text = p.read_text(encoding="utf-8")
+        warn = [] if bad else sigmahq_warnings(text, yaml.safe_load(text) or {}, hq)
         try:
             shown = p.relative_to(ROOT).as_posix()
         except ValueError:
@@ -377,8 +514,12 @@ def main(argv: list[str]) -> int:
         print(f"{'FAIL' if bad else 'ok  '} {shown}")
         for b in bad:
             print(f"     - {b}")
+        for w in warn:
+            print(f"warn - {w}")
+        warned += any(w.startswith(DUPLICATE) for w in warn)
         failed += bool(bad)
-    print(f"{len(paths) - failed} ok, {failed} failed")
+    print(f"{len(paths) - failed} ok, {failed} failed"
+          + (f", {warned} likely duplicates of SigmaHQ" if hq is not None else ""))
     return 1 if failed else 0
 
 

@@ -10,5 +10,6 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - run: python -m pip install "pySigma>=1.4,<2" "pySigma-backend-sqlite>=1.2,<3" pyyaml
+      - run: python -m pip install "pySigma>=1.4,<2" "pySigma-backend-sqlite>=1.2,<3" pyyaml pytest
+      - run: python -m pytest -q tests
       - run: python tools/validate.py

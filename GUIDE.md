@@ -135,6 +135,10 @@ check.
 - Check SigmaHQ first (github.com/SigmaHQ/sigma, `rules/windows/<category>/`,
   search for the binary or the key): the engine already runs all of it. Write a
   rule only for what SigmaHQ misses, and say in the description what that is.
+  With a SigmaHQ clone the validator checks it too (next section): when SigmaHQ
+  already matches every `test-match`, the rule is likely a duplicate. Keep it only if it adds something
+  real (a source SigmaHQ's rule cannot fire on, a variant its filters exclude)
+  and say what in a comment line `# beyond-sigmahq: <what it adds>`.
 - Check the rules already in this repository too. If one covers the same
   technique, improve that rule (same `id`) instead of adding a duplicate.
 
@@ -150,7 +154,18 @@ have (web: `cs-*`/`sc-status`; Linux process: `Image`, `CommandLine`, `User`,
 Sysmon-only category that does not say so (unless it selects only the disk's
 fields above), a hit in `tests/benign/<its
 folder>.txt` (ordinary events of clean hosts), or detection values that are
-mostly another rule's.
+mostly another rule's (with a SigmaHQ clone each value weighs by how rare it is
+there, so shared `powershell.exe` or `cmd.exe` count almost nothing; without one,
+every value counts the same).
+
+With a SigmaHQ clone (`--sigmahq <dir>` or the `SIGMAHQ_DIR` variable), it also
+runs every SigmaHQ rule of the same logsource over your `test-match` events and
+prints a `warn` line per test-match it matches, naming up to two SigmaHQ rules
+and counting the rest. Without a clone (CI) this check is skipped. A warn does not fail; the
+last line says `likely a duplicate` when SigmaHQ matches all of them, and that
+rule is rejected in review unless it carries a `# beyond-sigmahq:` line. Comparing
+values cannot tell this: lists of system binaries make unrelated rules look alike,
+and a real duplicate can share a single value.
 
 ## Your task
 

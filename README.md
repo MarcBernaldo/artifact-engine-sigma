@@ -20,6 +20,7 @@ rules/
   web/                             webserver access logs
 tools/validate.py                  the gate every rule passes (also run by CI)
 tests/benign/<folder>.txt          ordinary clean-host events no rule may match
+tests/test_validate.py             the validator's own tests (`python -m pytest -q tests`)
 GUIDE.md                           how to write a rule for this engine (also an LLM prompt)
 ```
 
@@ -35,7 +36,9 @@ GUIDE.md                           how to write a rule for this engine (also an 
    concrete false positives, no IP or hash in the detection, a logsource the
    engine evaluates and only fields that source has, 2+ `# test-match:` and 1+ `# test-nomatch:` lines that
    behave (each nomatch a near miss of a match), no hit in the benign corpus
-   `tests/benign/`, and no large overlap with another rule.
+   `tests/benign/`, and no large overlap with another rule. With
+   `--sigmahq <SigmaHQ clone>` it also names the SigmaHQ rules that already match
+   the test-match lines (a warning, not a failure; see GUIDE.md).
 4. Commit and push; CI runs the same validation.
 
 A rule rejected for firing on legitimate activity adds that activity to
