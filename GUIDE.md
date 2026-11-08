@@ -28,10 +28,11 @@ SMBClient (Connectivity, Operational, Security).
   be the only rule for its technique.
 - Prefer `service:` logsources the channels above actually hold (security,
   system, powershell, taskscheduler, wmi, windefend, bits-client, smbclient-*,
-  terminalservices-*) over Sysmon-only categories (`file_event`,
-  `registry_*`, `network_connection`, `image_load`, `dns_query`): those fire
-  only on the rare host with Sysmon. If you write one, say so in `falsepositives`
-  or the description.
+  terminalservices-*) over Sysmon-only categories (`image_load`, `dns_query`,
+  `process_access`, `pipe_created`...): those fire only on the rare host with
+  Sysmon. If you write one, say so in `falsepositives` or the description.
+  `file_event`, `file_delete`, `registry_*` and `network_connection` are the
+  exception when they select only the fields the disk gives (next section).
 
 **Windows: memory images.** Only `logsource: product: windows, category:
 process_creation`, evaluated over the processes in the image. Available fields:
@@ -57,9 +58,27 @@ can never fire there.
 `cs-referer`, `cs-host`, `sc-status`. No request bodies, no response sizes in
 the selection.
 
-Not evaluated by Sigma at all: the MFT/USN journal, registry hives read from
-disk, prefetch, amcache, browser history, FortiGate logs. Do not write Sigma for
-them; describe the idea in the note instead and it may become a native check.
+**Windows: the disk, without any event log.** The engine also builds Sigma
+events from what it parsed off the disk, so these categories fire on every host,
+Sysmon or not, but only with the fields listed (anything else is empty there):
+- `process_creation` from prefetch, amcache and shimcache: `Image` only (amcache
+  adds `Hashes` as `SHA1=...`); from a live-response process list: `Image`,
+  `CommandLine`, `User`, `ParentImage`, `ParentCommandLine`. A program that ran
+  once and left prefetch fires an `Image`-only rule here even without 4688.
+- `file_event` from the MFT and the USN journal, `file_delete` from the USN
+  journal: `TargetFilename` only. No `Image`: the disk does not say which process
+  wrote the file.
+- `registry_set` / `registry_event` / `registry_add` from the hives: `TargetObject`
+  and `Details` (the value as it is now, `DWORD (0x00000001)` style). The hive
+  holds the current state, not the change: a rule that fires on a key that merely
+  exists on a clean host is noise here.
+- `network_connection` from the live-response netstat: `Image`, `User`,
+  `Protocol`, `SourceIp`, `SourcePort`, `DestinationIp`, `DestinationPort`,
+  `Initiated`. Only connections open at collection time.
+
+Not evaluated by Sigma at all: browser history, FortiGate logs. Do not write
+Sigma for them; describe the idea in the note instead and it may become a native
+check.
 
 ## How the rule must look
 
@@ -113,7 +132,10 @@ them; describe the idea in the note instead and it may become a native check.
   # test-nomatch: Image="C:\Users\jdoe\Downloads\rclone.exe" CommandLine="rclone.exe version"
   ```
   For Linux shell history, one command per line.
-- Check the rules already in the repository first. If one covers the same
+- Check SigmaHQ first (github.com/SigmaHQ/sigma, `rules/windows/<category>/`,
+  search for the binary or the key): the engine already runs all of it. Write a
+  rule only for what SigmaHQ misses, and say in the description what that is.
+- Check the rules already in this repository too. If one covers the same
   technique, improve that rule (same `id`) instead of adding a duplicate.
 
 ## The gate
@@ -125,7 +147,8 @@ the file name. Spend your effort on the detection and the tests. Besides format
 and the tests above, it fails a rule that selects a field its source does not
 have (web: `cs-*`/`sc-status`; Linux process: `Image`, `CommandLine`, `User`,
 `ParentImage`, `ParentCommandLine`; Linux syslog: `keywords:` only), a
-Sysmon-only category that does not say so, a hit in `tests/benign/<its
+Sysmon-only category that does not say so (unless it selects only the disk's
+fields above), a hit in `tests/benign/<its
 folder>.txt` (ordinary events of clean hosts), or detection values that are
 mostly another rule's.
 

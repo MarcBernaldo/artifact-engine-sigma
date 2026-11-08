@@ -10,9 +10,12 @@ runs these rules beside the bundled SigmaHQ sets.
 
 ```
 rules/
-  windows/process_creation/        EVTX (Security 4688, Sysmon 1) via hayabusa, and memory images
+  windows/process_creation/        EVTX (Security 4688, Sysmon 1) via hayabusa, memory images,
+                                   and prefetch/amcache/shimcache/live-response processes
   windows/builtin/<service>/       one Windows event-log channel (system, security, powershell...)
-  windows/<category>/              other Sysmon categories (fire only where Sysmon was installed)
+  windows/<category>/              Sysmon categories; file_event/file_delete (MFT, USN),
+                                   registry_* (hives) and network_connection (netstat)
+                                   also fire from the disk, with the fields GUIDE.md lists
   linux/<category-or-service>/     auditd, process_creation (shell history + ps), syslog keywords
   web/                             webserver access logs
 tools/validate.py                  the gate every rule passes (also run by CI)

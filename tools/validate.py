@@ -16,7 +16,8 @@ and folder match the logsource; the logsource is one Artifact Engine evaluates;
 `status` and `level` are ones triage reads; `falsepositives` names real cases;
 no IP address or hash inside `detection` (those are IOCs, not behaviour);
 only fields the evaluated source has (web: cs-*/sc-status; Linux process: the
-history/ps fields; Linux syslog: keywords only); a Sysmon-only category says so.
+history/ps fields; Linux syslog: keywords only); a Sysmon-only category says so,
+unless it selects only fields the engine also reads from disk (DISK_FIELDS).
 
 Tests, evaluated with pySigma's SQLite backend:
 - at least 2 `# test-match:` and 1 `# test-nomatch:` line, and each behaves;
@@ -84,6 +85,14 @@ SYSMON_ONLY = {"file_event", "file_delete", "file_access", "file_change", "file_
                "process_access", "create_remote_thread", "pipe_created", "driver_load",
                "raw_access_thread", "create_stream_hash", "process_tampering",
                "wmi_event", "clipboard_capture"}
+# ...except these, which the engine also builds from the disk (alert_win_sigma):
+# MFT/USN -> file_event/file_delete, registry hives -> registry_*, netstat ->
+# network_connection. A rule that selects only these fields fires without Sysmon.
+_REG = {"TargetObject", "Details", "EventType"}
+DISK_FIELDS = {"file_event": {"TargetFilename"}, "file_delete": {"TargetFilename"},
+               "registry_set": _REG, "registry_event": _REG, "registry_add": _REG,
+               "network_connection": {"Image", "User", "Protocol", "SourceIp", "SourcePort",
+                                      "DestinationIp", "DestinationPort", "Initiated"}}
 
 
 def expected_folder(ls: dict) -> tuple[Path | None, str]:
@@ -189,10 +198,13 @@ def source_problems(rule: dict) -> list[str]:
     if keyword_only and used:
         bad.append("Linux syslog rules are matched as keywords per line: use `keywords:` "
                    f"lists, not field selections ({sorted(used)})")
-    if product == "windows" and cat in SYSMON_ONLY:
+    if product == "windows" and cat in SYSMON_ONLY and not used <= DISK_FIELDS.get(cat, set()):
         text = f"{rule.get('description', '')} {rule.get('falsepositives', '')}".lower()
         if "sysmon" not in text:
-            bad.append(f"`{cat}` exists only where Sysmon ran: say so in the description")
+            extra = sorted(used - DISK_FIELDS[cat]) if cat in DISK_FIELDS else []
+            why = (f"field(s) {extra} exist only in Sysmon events (from disk: "
+                   f"{sorted(DISK_FIELDS[cat])})" if extra else f"`{cat}` exists only where Sysmon ran")
+            bad.append(f"{why}: say so in the description")
     return bad
 
 
