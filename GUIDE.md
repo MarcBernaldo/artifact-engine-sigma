@@ -132,6 +132,10 @@ check.
   # test-nomatch: Image="C:\Users\jdoe\Downloads\rclone.exe" CommandLine="rclone.exe version"
   ```
   For Linux shell history, one command per line.
+- Give each `selection_*` (and each alternative inside one that matters) its own
+  `test-match`, the case that makes the rule worth having first: the SigmaHQ check
+  below only sees what the test-match lines show, so a rule tested only with the
+  textbook example looks like a duplicate even when its other variants are not.
 - Check SigmaHQ first (github.com/SigmaHQ/sigma, `rules/windows/<category>/`,
   search for the binary or the key): the engine already runs all of it. Write a
   rule only for what SigmaHQ misses, and say in the description what that is.
