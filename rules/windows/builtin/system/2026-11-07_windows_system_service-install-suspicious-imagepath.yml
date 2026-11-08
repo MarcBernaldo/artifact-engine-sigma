@@ -7,6 +7,7 @@ references:
     - https://attack.mitre.org/techniques/T1569/002/
 author: Marc
 date: 2026-11-07
+modified: 2026-11-08
 tags:
     - attack.persistence
     - attack.execution
@@ -46,4 +47,6 @@ falsepositives:
 level: high
 # test-match: Provider_Name="Service Control Manager" EventID=7045 ImagePath="%COMSPEC% /Q /c echo cd ^> \\127.0.0.1\C$\__output 2^>^&1 > %SYSTEMROOT%\Temp\execute.bat"
 # test-match: Provider_Name="Service Control Manager" EventID=7045 ImagePath="C:\Users\Public\svchost.exe"
+# test-match: Provider_Name="Service Control Manager" EventID=7045 ImagePath="%COMSPEC% /c whoami > nul"
 # test-nomatch: Provider_Name="Service Control Manager" EventID=7045 ImagePath="C:\Program Files\Mozilla Maintenance Service\maintenanceservice.exe"
+# beyond-sigmahq: SigmaHQ's 7045 rules miss a service image of cmd /c, %COMSPEC%, mshta, rundll32, -enc or FromBase64String outside their specific tool patterns

